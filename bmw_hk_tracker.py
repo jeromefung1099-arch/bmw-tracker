@@ -53,11 +53,14 @@ PRICE_ABS_THRESHOLD = 20_000  # or HK$20,000
 #   3. Copy the resulting URL from the address bar and paste it below.
 # You can add several (e.g. private + dealer searches). The default below is the
 # unfiltered list, which still works (models are filtered in code) but is slower.
+# 28car searches by text via the h_srh URL param (confirmed public GET). We hit
+# one search per model number; results are filtered precisely in code below.
+DEFAULT_SEARCH = ",".join(
+    f"https://www.28car.com/sell_lst.php?h_srh={q}" for q in ("530", "540", "M5")
+)
 SEARCH_URLS = [
-    u.strip() for u in os.environ.get(
-        "SEARCH_URLS",
-        "https://www.28car.com/sell_lst.php"
-    ).split(",") if u.strip()
+    u.strip() for u in os.environ.get("SEARCH_URLS", DEFAULT_SEARCH).split(",")
+    if u.strip()
 ]
 PAGES_PER_URL = int(os.environ.get("PAGES_PER_URL", "3"))  # how many result pages to walk
 
@@ -97,15 +100,18 @@ class Listing:
 # SCRAPER  (28car.com)
 # --------------------------------------------------------------------------- #
 
+# 530i/540i require the "i" so a Yamaha "530" or a "530E" hybrid can't match.
+# M5 is ambiguous alone, so it additionally requires a BMW marker in the row.
+BMW_MARKERS = ("寶馬", "BMW", "bmw")
 MODEL_PATTERNS = {
-    "M5":   re.compile(r"\bM5\b", re.I),
-    "540i": re.compile(r"\b540\s*i?\b", re.I),
-    "530i": re.compile(r"\b530\s*i?\b", re.I),
+    "M5":   re.compile(r"\bM5\b"),
+    "540i": re.compile(r"\b540\s*i\b", re.I),
+    "530i": re.compile(r"\b530\s*i\b", re.I),
 }
 PRICE_RE = re.compile(r"\$\s*([\d,]{4,})")
 YEAR_RE  = re.compile(r"\b(19[89]\d|20[0-4]\d)\b")   # a bare 4-digit model year
 PHONE_RE = re.compile(r"(\d{8})")                     # HK phone in the seller line
-VHCID_RE = re.compile(r"h_vhc_id=(\w+)")
+VHCID_RE = re.compile(r"h_vid=(\d+)")                 # 28car detail id: sell_dsp.php?h_vid=
 
 
 def fetch_page(url: str, page: int) -> str:
@@ -120,6 +126,10 @@ def match_model(text: str) -> str | None:
     # Check M5 first so "M5" isn't shadowed; then 540/530.
     for name in ("M5", "540i", "530i"):
         if MODEL_PATTERNS[name].search(text):
+            # "530i"/"540i" are unambiguous; "M5" needs a BMW marker to avoid
+            # matching stray "M5" text on non-BMW rows.
+            if name == "M5" and not any(m in text for m in BMW_MARKERS):
+                continue
             return name
     return None
 
