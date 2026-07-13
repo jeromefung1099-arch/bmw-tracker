@@ -1,0 +1,39 @@
+name: BMW HK price tracker
+
+# Runs twice a day (09:00 & 21:00 Hong Kong time = 01:00 & 13:00 UTC),
+# and can be triggered manually from the Actions tab.
+on:
+  schedule:
+    - cron: "0 1,13 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write        # needed to commit the updated DB/CSV back to the repo
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run tracker
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SEARCH_URLS: ${{ secrets.SEARCH_URLS }}      # optional; comma-separated
+        run: python bmw_hk_tracker.py
+
+      - name: Persist state (listings.db + CSV)
+        run: |
+          git config user.name  "bmw-tracker-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add listings.db listings_export.csv
+          git commit -m "Update listings $(date -u +%Y-%m-%dT%H:%MZ)" || echo "no changes"
+          git push
